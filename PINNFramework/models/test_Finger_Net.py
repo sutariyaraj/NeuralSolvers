@@ -117,5 +117,18 @@ class FingerNetTest(unittest.TestCase):
         self.assertGreater(num_parameter_entries, 0, "Number of parameters is not empty")
 
 
+    def test_transfer_learning(self):
+        InputSize = 3
+        OutputSize = 3
+        lb = [0, 0, 0]
+        ub = [1, 1, 1]
+        model = FingerNet(lb, ub, InputSize, OutputSize)
+        for layer in model.parameters():
+            layer.requires_grad = False
+        model.lin_layers[-1].weight.requires_grad = True
+        model.lin_layers[-1].bias.requires_grad = True
+        for name,parameter in model.named_parameters():
+            print(name, parameter.requires_grad)
+
 if __name__ == '__main__':
     unittest.main()

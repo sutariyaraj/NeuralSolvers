@@ -41,11 +41,14 @@ class FingerNet(nn.Module):
             inFeatures = self.numFeatures
             self.lin_layers.append(nn.Linear(inFeatures, self.numFeatures))
         inFeatures = self.numFeatures
-        self.lin_layers.append(nn.Linear(inFeatures, self.output_size))
+        self.lin_layers.append(nn.Linear(inFeatures, self.output_size,bias=False))
+
         for m in self.lin_layers:
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
-                nn.init.constant_(m.bias, 0)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
                 
     def forward(self, x_in):
         if self.normalize:

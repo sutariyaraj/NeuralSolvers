@@ -11,7 +11,7 @@ from .JoinedDataset import JoinedDataset
 from .HPMLoss import HPMLoss
 from torch.autograd import grad as grad
 from PINNFramework.callbacks import CallbackList
-
+from .utils import angle
 try:
     import horovod.torch as hvd
 except:
@@ -29,7 +29,7 @@ class PINN(nn.Module):
 
     def __init__(self, model: torch.nn.Module, input_dimension: int, output_dimension: int,
                  pde_loss: PDELoss, initial_condition: InitialCondition, boundary_condition,
-                 use_gpu=True, use_horovod=False,dataset_mode='min'):
+                 use_gpu=True, use_horovod=False, dataset_mode='min'):
         """
         Initializes an physics-informed neural network (PINN). A PINN consists of a model which represents the solution
         of the underlying partial differential equation(PDE) u, three loss terms representing initial (IC) and boundary
@@ -148,6 +148,7 @@ class PINN(nn.Module):
         for elem in model_grads:
             if elem is not None:
                 grad_ = torch.cat((grad_, elem.view(-1)))
+
         return grad_
 
     def forward(self, x):
@@ -262,7 +263,7 @@ class PINN(nn.Module):
 
         # annealing initial condition
         lambda_ic_head = maximum_std / torch.std(self.loss_gradients_storage[self.initial_condition.name])
-        self.initial_condition.weight = 0.5 * self.initial_condition.weight + 0.5 * lambda_ic_head
+        self.initial_condition.weight = alpha * self.initial_condition.weight + (1-alpha) * lambda_ic_head
 
         # annealing boundary condition
         if isinstance(self.boundary_condition, list):
@@ -272,19 +273,19 @@ class PINN(nn.Module):
                 bc.weight = 0.5 * bc.weight + 0.5 * lambda_bc_head
         else:
             lambda_bc_head = maximum_std / torch.std(self.loss_gradients_storage[self.boundary_condition.name])
-            self.boundary_condition.weight = 0.5 * self.boundary_condition.weight + 0.5 * lambda_bc_head
+            self.boundary_condition.weight = alpha * self.boundary_condition.weight + (1-alpha) * lambda_bc_head
 
         # annealing pde loss
-        lambda_pde_head = maximum_std / torch.std(self.loss_gradients_storage[self.pde_loss.name])
-        self.pde_loss.weight = 0.5 * self.pde_loss.weight + 0.5 * lambda_pde_head
+        #lambda_pde_head = maximum_std / torch.std(self.loss_gradients_storage[self.pde_loss.name])
+        #self.pde_loss.weight = alpha * self.pde_loss.weight + 0.5 * lambda_pde_head
 
-    def standard_learning_rate_annealing(self, alpha=0.9):
+    def standard_learning_rate_annealing(self, alpha=0.95):
         # calculating maximum std
         maximum_residual = torch.max(torch.abs(self.loss_gradients_storage[self.pde_loss.name]))
 
         # annealing initial condition
         lambda_ic_head = maximum_residual / torch.mean(torch.abs(self.loss_gradients_storage[self.initial_condition.name]))
-        self.initial_condition.weight = (1-alpha) * self.initial_condition.weight + (alpha* lambda_ic_head)
+        self.initial_condition.weight = (1-alpha) * self.initial_condition.weight + (alpha * lambda_ic_head)
 
         # annealing boundary condition
         if isinstance(self.boundary_condition, list):
@@ -376,7 +377,7 @@ class PINN(nn.Module):
                 if self.rank == 0:
                     self.loss_log["model_loss_hpm"] = self.loss_log["model_loss_hpm"] + self.pde_loss.hpm_model.loss
         if annealing:
-            self.inverse_dirichlet_annealing(alpha=0.5)
+            self.inverse_dirichlet_annealing(alpha=0.9)
 
         return pinn_loss
 
@@ -400,7 +401,6 @@ class PINN(nn.Module):
         torch.save(checkpoint, checkpoint_path)
 
 
-
     def fit(self,
             epochs,
             checkpoint_path=None,
@@ -418,7 +418,7 @@ class PINN(nn.Module):
             logger=None,
             track_gradient=False,
             activate_annealing=False,
-            annealing_cycle=100,
+            annealing_cycle=500,
             callbacks=None):
         """
         Function for optimizing the parameters of the PINN-Model
@@ -595,16 +595,24 @@ class PINN(nn.Module):
                     logger.log_scalar(scalar=self.initial_condition.weight,
                                       name=self.initial_condition.name + "_weight",
                                       epoch=epoch+1)
-                    # Log weights of PDE LOss
+                    # Log weights of PDE Loss
                     logger.log_scalar(scalar=self.pde_loss.weight,
                                       name=self.pde_loss.name + '_weight',
                                       epoch=epoch+1)
                     # track gradients of loss terms as histogram
                     if activate_annealing or track_gradient:
+                        # calculate angle between initial condition and pde loss
+                        grad_initial_condition = self.loss_gradients_storage[self.initial_condition.name]
+                        grad_pde_loss = self.loss_gradients_storage[self.pde_loss.name]
+                        angle_ic_pde = angle(grad_initial_condition, grad_pde_loss)
+                        logger.log_scalar(angle_ic_pde, 'angle_IC_PDE', epoch + 1)
                         for key, gradients in self.loss_gradients_storage.items():
                             logger.log_histogram(gradients.cpu(),
                                                  'gradients_' + key,
                                                  epoch+1)
+                            # track norm of each gradient
+                            logger.log_scalar(torch.norm(gradients), 'norm_' + key, epoch+1)
+
                     if not self.is_hpm:
                         if isinstance(self.boundary_condition, list):
                             for bc in self.boundary_condition:
