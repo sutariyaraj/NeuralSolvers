@@ -43,7 +43,7 @@ class InitialConditionDataset(Dataset):
           n0 (int)
         """
         super(type(self)).__init__()
-        x = np.linspace(-4, 4, n0)
+        x = np.linspace(0, 4, n0)
 
         self.exact_e = gaussian_pulse(x)
         self.exact_h = gaussian_pulse(x)
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     parser.add_argument('--annealing', dest='annealing', type=int, default=0, help='Activate Annealing')
     args = parser.parse_args()
     ic_dataset = InitialConditionDataset(args.n0)
-    initial_condition = pf.InitialCondition(ic_dataset, name='Initial Condition', weight=2000)
+    initial_condition = pf.InitialCondition(ic_dataset, name='Initial Condition')
 
     pde_dataset = PDEDataset(args.nf, lb, ub)
     pde_loss = pf.PDELoss(pde_dataset, maxwell_1d, name='Maxwell equation')
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     pinn.load_model('best_model_pinn.pt')
     # plotting
     x = np.linspace(0, 4, args.n0)
-    t = np.linspace(0, 5, 200 )
+    t = np.linspace(0, 5, 200)
 
     T, X = np.meshgrid(t, x, indexing='ij')
     print(X.shape)
