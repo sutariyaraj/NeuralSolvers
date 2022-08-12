@@ -16,6 +16,7 @@ class WandbLogger(LoggerInterface):
         """
         wandb.init(project=project, entity=entity, group=group)
         wandb.config.update(args)  # adds all of the arguments as config variable
+        self.name = wandb.run.name # save name of the run as a member
 
     def log_scalar(self, scalar, name, epoch):
         """
