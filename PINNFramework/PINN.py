@@ -300,7 +300,7 @@ class PINN(nn.Module):
                 torch.abs(self.loss_gradients_storage[self.boundary_condition.name]))
             self.boundary_condition.weight = (1 - alpha) * self.boundary_condition.weight + alpha * lambda_bc_head
 
-    def pinn_loss(self, training_data, track_gradient=False, annealing=False, orthogonal=True):
+    def pinn_loss(self, training_data, track_gradient=False, annealing=False, orthogonal=False):
         """
         Function for calculating the PINN loss. The PINN Loss is a weighted sum of losses for initial and boundary
         condition and the residual of the PDE
@@ -429,6 +429,7 @@ class PINN(nn.Module):
             logger=None,
             track_gradient=False,
             activate_annealing=False,
+            activate_orthogonal=False,
             annealing_cycle=500,
             callbacks=None):
         """
@@ -584,7 +585,7 @@ class PINN(nn.Module):
                 do_annealing = activate_annealing and not (epoch + 1) % annealing_cycle and idx == 0
                 do_gradient_tracking = track_gradient and not (epoch + 1) % writing_cycle and idx == 0
                 optim.zero_grad()
-                pinn_loss = self.pinn_loss(training_data, do_gradient_tracking, do_annealing)
+                pinn_loss = self.pinn_loss(training_data, do_gradient_tracking, do_annealing,activate_orthogonal)
                 pinn_loss.backward()
                 optim.step()
                 pinn_loss_sum = pinn_loss_sum + pinn_loss
@@ -596,9 +597,10 @@ class PINN(nn.Module):
                       flush=True)
 
                 if logger is not None and not (epoch + 1) % writing_cycle:
-                    logger.log_scalar(scalar=pinn_loss_sum / batch_counter, name=" Weighted PINN Loss", epoch=epoch)
+                    logger.log_scalar(scalar=pinn_loss_sum / batch_counter, name="Weighted PINN Loss", epoch=epoch)
                     logger.log_scalar(scalar=sum(self.loss_log.values()) / batch_counter,
                                       name=" Non-Weighted PINN Loss", epoch=epoch + 1)
+                    logger.log_scalar(scalar=minimum_pinn_loss, name="Minimum PINN Loss", epoch=epoch)
                     # Log values of the loss terms
                     for key, value in self.loss_log.items():
                         logger.log_scalar(scalar=value / batch_counter, name=key, epoch=epoch + 1)
@@ -638,9 +640,10 @@ class PINN(nn.Module):
                 if callbacks is not None and not (epoch + 1) % writing_cycle:
                     callbacks(epoch=epoch + 1)
                 # saving routine
-                if (pinn_loss_sum / batch_counter < minimum_pinn_loss) and save_model:
-                    self.save_model(pinn_path, hpm_path)
-                    minimum_pinn_loss = pinn_loss_sum / batch_counter
+                if (sum(self.loss_log.values()) / batch_counter) < minimum_pinn_loss:
+                    minimum_pinn_loss = sum(self.loss_log.values()) / batch_counter
+                    if save_model:
+                        self.save_model(pinn_path, hpm_path)
 
                 # reset loss log after the end of the epoch
                 for key in self.loss_log.keys():

@@ -100,12 +100,14 @@ if __name__ == "__main__":
     lb = np.array([0, 0])
     ub = np.array([4, 5])
     parser = ArgumentParser()
-    parser.add_argument("--num_epochs", dest="num_epochs", type=int, default=200000, help='Number of training iterations')
+    parser.add_argument("--num_epochs", dest="num_epochs", type=int, default=300000, help='Number of training iterations')
     parser.add_argument('--n0', dest='n0', type=int, default=200, help='Number of input points for initial condition')
     parser.add_argument('--nf', dest='nf', type=int, default=50000, help='Number of input points for pde loss')
     parser.add_argument('--num_hidden', dest='num_hidden', type=int, default=4, help='Number of hidden layers')
     parser.add_argument('--hidden_size', dest='hidden_size', type=int, default=100, help='Size of hidden layers')
     parser.add_argument('--annealing', dest='annealing', type=int, default=0, help='Activate Annealing')
+    parser.add_argument('--pretraining',dest='pretraining',type=int,default=0,help='Activate pretraining')
+    parser.add_argument('--ic_weight', dest='ic_weight', )
     args = parser.parse_args()
     ic_dataset = InitialConditionDataset(args.n0)
     initial_condition = pf.InitialCondition(ic_dataset, name='Initial Condition')
@@ -118,7 +120,7 @@ if __name__ == "__main__":
     pinn = pf.PINN(model, 2, 2, pde_loss, initial_condition, [], use_gpu=True)
 
     logger = pf.WandbLogger('1D Maxwell equation Angle', args, 'aipp')
-    pinn.fit(args.num_epochs, checkpoint_path='checkpoint.pt', epochs_pt=20000, pretraining=False,
+    pinn.fit(args.num_epochs, checkpoint_path='checkpoint.pt', epochs_pt=20000, pretraining=args.pretraining,
              restart=True, logger=logger, activate_annealing=args.annealing, annealing_cycle=200,
              writing_cycle=50, learning_rate=1e-3,  track_gradient=True, lbfgs_finetuning=False)
 
@@ -144,26 +146,26 @@ if __name__ == "__main__":
     plt.pcolormesh(t, x, pred_e.T)
     plt.title('Electric field')
     plt.colorbar()
-    plt.savefig('e_field.png')
+    plt.savefig(logger.name + 'e_field.png')
     plt.show()
     fig = plt.figure()
     plt.pcolormesh(t, x, pred_h.T)
     plt.title("Magnetic field")
     plt.colorbar()
-    plt.savefig('b_field.png')
+    plt.savefig(logger.name + 'b_field.png')
     plt.show()
     print(pred_e.shape)
     fig = plt.figure()
     plt.title("Initial Condition E-Field ")
     plt.plot(x, pred_e[0, :], label='prediction 0')
     plt.plot(ic_dataset.exact_e, label='ground truth initial state')
-    plt.savefig('initial_condition_e.png')
+    plt.savefig(logger.name + 'initial_condition_e.png')
     plt.show()
     plt.figure()
     plt.title("Initial Conditioni H-Field")
     plt.plot(x, pred_h[0, :], label='prediction 0')
     plt.plot(ic_dataset.exact_h, label='ground truth initial state')
-    plt.savefig('initial_condition_h.png')
+    plt.savefig(logger.name + 'initial_condition_h.png')
     plt.show()
     # timestep 0
     fig = plt.figure()
@@ -176,7 +178,7 @@ if __name__ == "__main__":
     # timestep 5
     plt.plot(x, pred_e[4, :], label='prediction 5')
     plt.legend()
-    plt.savefig('e_field_time.png')
+    plt.savefig(logger.name + 'e_field_time.png')
     plt.show()
 
     # timestep
@@ -189,5 +191,5 @@ if __name__ == "__main__":
     # timestep 75
     plt.plot(pred_h[4, :], label='prediction 5')
     plt.legend()
-    plt.savefig('h_field_time.png')
+    plt.savefig(logger.name + 'h_field_time.png')
     plt.show()
