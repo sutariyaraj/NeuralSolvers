@@ -577,13 +577,12 @@ class PINN(nn.Module):
                 pinn_loss.backward()
                 # do projection here
                 if gradient_projection:
-                    gamma = 1e-2
                     gradient_pinn_loss = capture_gradients(self.model)
                     grad_ic = self.loss_gradients_storage[self.initial_condition.name]
                     dot_product = torch.dot(gradient_pinn_loss, grad_ic)
                     print("Dot product", dot_product, flush=True)
                     print("do projection", flush=True)
-                    ic_scale = gamma * dot_product / torch.norm(grad_ic)
+                    ic_scale = dot_product / torch.dot(grad_ic, grad_ic)
                     grad_proj = gradient_pinn_loss - ic_scale * grad_ic
                     index = 0
                     for p in self.parameters():
