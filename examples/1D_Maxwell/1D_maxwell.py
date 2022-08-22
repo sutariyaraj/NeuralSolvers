@@ -100,13 +100,14 @@ if __name__ == "__main__":
     lb = np.array([0, 0])
     ub = np.array([4, 5])
     parser = ArgumentParser()
-    parser.add_argument("--num_epochs", dest="num_epochs", type=int, default=300000, help='Number of training iterations')
+    parser.add_argument("--num_epochs", dest="num_epochs", type=int, default=2000, help='Number of training iterations')
     parser.add_argument('--n0', dest='n0', type=int, default=200, help='Number of input points for initial condition')
     parser.add_argument('--nf', dest='nf', type=int, default=50000, help='Number of input points for pde loss')
     parser.add_argument('--num_hidden', dest='num_hidden', type=int, default=4, help='Number of hidden layers')
     parser.add_argument('--hidden_size', dest='hidden_size', type=int, default=100, help='Size of hidden layers')
     parser.add_argument('--annealing', dest='annealing', type=int, default=0, help='Activate Annealing')
-    parser.add_argument('--pretraining',dest='pretraining',type=int,default=0,help='Activate pretraining')
+    parser.add_argument('--pretraining',dest='pretraining', type=int, default=0, help='Activate pretraining')
+    parser.add_argument('--projection', dest='projection', type=int, default=1, help='Activate projection')
     parser.add_argument('--ic_weight', dest='ic_weight', )
     args = parser.parse_args()
     ic_dataset = InitialConditionDataset(args.n0)
@@ -118,11 +119,11 @@ if __name__ == "__main__":
     model = pf.models.FingerNet(lb, ub, 2, 2, 50, 3, 5, torch.sin, False)
     #model = pf.models.MLP(2,2, args.hidden_size,args.num_hidden, lb, ub)
     pinn = pf.PINN(model, 2, 2, pde_loss, initial_condition, [], use_gpu=True)
-
-    logger = pf.WandbLogger('1D Maxwell equation Angle', args, 'aipp')
-    pinn.fit(args.num_epochs, checkpoint_path='checkpoint.pt', epochs_pt=20000, pretraining=args.pretraining,
+    logger = pf.WandbLogger('Projection Exeperiments', args, 'aipp')
+    pinn.fit(args.num_epochs, checkpoint_path='checkpoint.pt', epochs_pt=10000, pretraining=args.pretraining,
              restart=True, logger=logger, activate_annealing=args.annealing, annealing_cycle=200,
-             writing_cycle=50, learning_rate=1e-3,  track_gradient=True, lbfgs_finetuning=False)
+             writing_cycle=50, learning_rate=1e-3,  track_gradient=True,
+             lbfgs_finetuning=False, gradient_projection=args.projection)
 
     pinn.load_model('best_model_pinn.pt')
     # plotting
@@ -158,20 +159,20 @@ if __name__ == "__main__":
     fig = plt.figure()
     plt.title("Initial Condition E-Field ")
     plt.plot(x, pred_e[0, :], label='prediction 0')
-    plt.plot(ic_dataset.exact_e, label='ground truth initial state')
+    plt.plot(x, ic_dataset.exact_e, label='ground truth initial state')
     plt.savefig(logger.name + 'initial_condition_e.png')
     plt.show()
     plt.figure()
     plt.title("Initial Conditioni H-Field")
     plt.plot(x, pred_h[0, :], label='prediction 0')
-    plt.plot(ic_dataset.exact_h, label='ground truth initial state')
+    plt.plot(x, ic_dataset.exact_h, label='ground truth initial state')
     plt.savefig(logger.name + 'initial_condition_h.png')
     plt.show()
     # timestep 0
     fig = plt.figure()
     plt.title('e_field time step')
     plt.plot(x, pred_e[0, :], label='prediction 0')
-    plt.plot(ic_dataset.exact_e, label='ground truth initial state')
+    plt.plot(x, ic_dataset.exact_e, label='ground truth initial state')
     # timestep 2
     plt.plot(x, pred_e[2, :], label='prediction 2')
 
@@ -183,13 +184,13 @@ if __name__ == "__main__":
 
     # timestep
     plt.title('b_field')
-    plt.plot(pred_h[0, :], label='prediction 0')
+    plt.plot(x, pred_h[0, :], label='prediction 0')
 
     # timestep 20
-    plt.plot(pred_h[2, :], label='prediction 2')
+    plt.plot(x, pred_h[2, :], label='prediction 2')
 
     # timestep 75
-    plt.plot(pred_h[4, :], label='prediction 5')
+    plt.plot(x, pred_h[4, :], label='prediction 5')
     plt.legend()
     plt.savefig(logger.name + 'h_field_time.png')
     plt.show()
