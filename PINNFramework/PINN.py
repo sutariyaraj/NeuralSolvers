@@ -575,14 +575,17 @@ class PINN(nn.Module):
                 optim.zero_grad()
                 pinn_loss = self.pinn_loss(training_data, compute_gradients)
                 pinn_loss.backward()
+                if track_gradient:
+                    gradient_pinn_loss = capture_gradients(self.model)
                 # do projection here
                 if gradient_projection:
                     gradient_pinn_loss = capture_gradients(self.model)
                     grad_ic = self.loss_gradients_storage[self.initial_condition.name]
-                    dot_product = torch.dot(gradient_pinn_loss, grad_ic)
-                    print("Dot product", dot_product, flush=True)
-                    print("do projection", flush=True)
+                    grad_pde = self.loss_gradients_storage[self.pde_loss.name]
+                    dot_product = torch.dot(grad_pde, grad_ic)
                     ic_scale = dot_product / torch.dot(grad_ic, grad_ic)
+                    if logger is not None:
+                        logger.log_scalar(scalar=ic_scale, name="Projection Scale", epoch=epoch+1)
                     grad_proj = gradient_pinn_loss - ic_scale * grad_ic
                     index = 0
                     for p in self.parameters():
@@ -600,10 +603,10 @@ class PINN(nn.Module):
                       flush=True)
 
                 if logger is not None and not (epoch + 1) % writing_cycle:
-                    logger.log_scalar(scalar=pinn_loss_sum / batch_counter, name="Weighted PINN Loss", epoch=epoch)
+                    logger.log_scalar(scalar=pinn_loss_sum / batch_counter, name="Weighted PINN Loss", epoch=epoch+1)
                     logger.log_scalar(scalar=sum(self.loss_log.values()) / batch_counter,
                                       name=" Non-Weighted PINN Loss", epoch=epoch + 1)
-                    logger.log_scalar(scalar=minimum_pinn_loss, name="Minimum PINN Loss", epoch=epoch)
+                    logger.log_scalar(scalar=minimum_pinn_loss, name="Minimum PINN Loss", epoch=epoch+1)
                     # Log values of the loss terms
                     for key, value in self.loss_log.items():
                         logger.log_scalar(scalar=value / batch_counter, name=key, epoch=epoch + 1)
@@ -622,7 +625,13 @@ class PINN(nn.Module):
                         grad_initial_condition = self.loss_gradients_storage[self.initial_condition.name]
                         grad_pde_loss = self.loss_gradients_storage[self.pde_loss.name]
                         angle_ic_pde = angle(grad_initial_condition, grad_pde_loss)
+                        angle_ic_pinn = angle(grad_initial_condition, gradient_pinn_loss)
+                        angle_pde_pinn = angle(grad_pde_loss, gradient_pinn_loss)
+                        
                         logger.log_scalar(angle_ic_pde, 'angle_IC_PDE', epoch + 1)
+                        logger.log_scalar(angle_ic_pinn, 'angle_IC_PINN', epoch + 1)
+                        logger.log_scalar(angle_pde_pinn, 'angle_PDE_PINN', epoch +1)
+                        logger.log_scalar(torch.dot(grad_initial_condition,grad_pde_loss),'dot IC PDE', epoch+1)
                         for key, gradients in self.loss_gradients_storage.items():
                             logger.log_histogram(gradients.cpu(),
                                                  'gradients_' + key,
