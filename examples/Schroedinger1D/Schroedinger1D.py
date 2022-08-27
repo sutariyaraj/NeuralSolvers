@@ -75,6 +75,7 @@ class InitialConditionDataset(Dataset):
     def __getitem__(self, idx):
         x = np.concatenate([self.x, self.t], axis=1)
         y = np.concatenate([self.u, self.v], axis=1)
+
         return Tensor(x).float(), Tensor(y).float()
 
 
@@ -94,6 +95,36 @@ class PDEDataset(Dataset):
         """
         return 1
 
+def schroedinger1d(x, u):
+    print(x.shape)
+    print(x)
+    print(u.shape)
+    pred = u
+    u= pred[:, 0]
+    v = pred[:, 1]
+
+    grads = ones(u.shape, device=pred.device) # move to the same device as prediction
+    grad_u = grad(u, x, create_graph=True, grad_outputs=grads)[0]
+    grad_v = grad(v, x, create_graph=True, grad_outputs=grads)[0]
+
+    # calculate first order derivatives
+    u_x = grad_u[:, 0]
+    u_t = grad_u[:, 1]
+
+    v_x = grad_v[:, 0]
+    v_t = grad_v[:, 1]
+
+    # calculate second order derivatives
+    grad_u_x = grad(u_x, x, create_graph=True, grad_outputs=grads)[0]
+    grad_v_x = grad(v_x, x, create_graph=True, grad_outputs=grads)[0]
+
+
+    u_xx = grad_u_x[:, 0]
+    v_xx = grad_v_x[:, 0]
+    f_u = u_t + 0.5 * v_xx + (u ** 2 + v ** 2) * v
+    f_v = v_t - 0.5 * u_xx - (u ** 2 + v ** 2) * u
+    f = stack([f_u, f_v], 1)
+    return stack([f_u, f_v], 1)  # concatenate real part and imaginary part
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -122,35 +153,6 @@ if __name__ == "__main__":
     # PDE
     pde_dataset = PDEDataset(args.nf, lb, ub)
 
-
-    def schroedinger1d(x, u):
-        pred = u
-        u = pred[:, 0]
-        v = pred[:, 1]
-        
-        grads = ones(u.shape, device=pred.device) # move to the same device as prediction
-        grad_u = grad(u, x, create_graph=True, grad_outputs=grads)[0]
-        grad_v = grad(v, x, create_graph=True, grad_outputs=grads)[0]
-
-        # calculate first order derivatives
-        u_x = grad_u[:, 0]
-        u_t = grad_u[:, 1]
-
-        v_x = grad_v[:, 0]
-        v_t = grad_v[:, 1]
-
-        # calculate second order derivatives
-        grad_u_x = grad(u_x, x, create_graph=True, grad_outputs=grads)[0]
-        grad_v_x = grad(v_x, x, create_graph=True, grad_outputs=grads)[0]
-
-        u_xx = grad_u_x[:, 0]
-        v_xx = grad_v_x[:, 0]
-        f_u = u_t + 0.5 * v_xx + (u ** 2 + v ** 2) * v
-        f_v = v_t - 0.5 * u_xx - (u ** 2 + v ** 2) * u
-
-        return stack([f_u, f_v], 1)  # concatenate real part and imaginary part
-
-
     pde_loss = pf.PDELoss(pde_dataset, schroedinger1d, name='1D Schrodinger')
     model = pf.models.MLP(input_size=2,
                           output_size=2,
@@ -165,8 +167,8 @@ if __name__ == "__main__":
                                                               periodic_bc_u_x,
                                                               periodic_bc_v_x], use_gpu=True)
     pinn.fit(args.num_epochs, checkpoint_path='checkpoint.pt',
-             restart=False, logger=logger, activate_annealing=args.annealing, annealing_cycle=args.annealing_cycle,
-             writing_cycle=500,
+             restart=True, logger=logger, activate_annealing=args.annealing, annealing_cycle=args.annealing_cycle,
+             writing_cycle=1,
              track_gradient=args.track_gradient)
     pinn.load_model('best_model_pinn.pt')
 
@@ -195,4 +197,3 @@ if __name__ == "__main__":
                   origin='lower', aspect='auto')
     plt.colorbar()
     plt.show()
-W

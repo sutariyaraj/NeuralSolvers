@@ -109,7 +109,6 @@ if __name__ == "__main__":
         # calculate first order derivatives
         u_x = grad_u[:, 0]
         u_t = grad_u[:, 1]
-
         grads = ones(u_x.shape, device=u.device)  # move to the same device as prediction
         # calculate second order derivatives
         grad_u_x = grad(u_x, x, create_graph=True, grad_outputs=grads)[0]
@@ -128,10 +127,12 @@ if __name__ == "__main__":
     model = pf.models.MLP(input_size=2, output_size=1,
                           hidden_size=40, num_hidden=8, lb=pde_dataset.lb, ub=pde_dataset.ub, activation=torch.tanh)
     # create PINN instance
+    logger = pf.WandbLogger('Burgers Equation', {}, 'aipp')
     pinn = pf.PINN(model, 2, 1, pde_loss, initial_condition, [], use_gpu=True)
 
     # train pinn
-    pinn.fit(50000, checkpoint_path='checkpoint.pt', restart=True, lbfgs_finetuning=False, writing_cycle=1000)
+    pinn.fit(50000, checkpoint_path='checkpoint.pt', restart=True, lbfgs_finetuning=False, logger=logger,writing_cycle=10,
+             track_gradient=True)
 
 
 

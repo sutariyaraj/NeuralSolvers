@@ -10,17 +10,13 @@ from torch import Tensor, ones, stack, load
 from torch.autograd import grad
 from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-from matplotlib.colors import LogNorm
-import wandb 
+#import matplotlib.gridspec as gridspec
+#from matplotlib.colors import LogNorm
+#import wandb
 
 
-
-
-sys.path.append("NeuralSolvers/")  # PINNFramework etc.
+sys.path.append('../..')  # PINNFramework etc.
 import PINNFramework as pf
-
-
 
 
 class BoundaryConditionDatasetlb(Dataset):
@@ -56,9 +52,6 @@ class BoundaryConditionDatasetlb(Dataset):
         """
         return 1
 
-
-
-
 class BoundaryConditionDatasetub(Dataset):
 
     def __init__(self, nb, lb, ub):
@@ -91,8 +84,6 @@ class BoundaryConditionDatasetub(Dataset):
         There exists no batch processing. So the size is 1
         """
         return 1
-
-
 
 
 class InitialConditionDataset(Dataset):
@@ -134,9 +125,6 @@ class InitialConditionDataset(Dataset):
         y = np.concatenate([self.u], axis=1)
         return Tensor(x).float(), Tensor(y).float()
 
-
-
-
 class PDEDataset(Dataset):
     
     def __init__(self, nf, lb, ub):
@@ -164,7 +152,33 @@ class PDEDataset(Dataset):
         """
         return 1
 
+def func(x):
+    return torch.zeros_like(x)[:, 0].reshape(-1, 1)
 
+
+def heat1d(x, u):
+    print(x)
+    grads = ones(u.shape, device=u.device)  # move to the same device as prediction
+    grad_u = grad(u, x, create_graph=True, grad_outputs=grads)[0]
+
+    # calculate first order derivatives
+    u_x = grad_u[:, 0]
+    u_t = grad_u[:, 1]
+
+    # calculate second order derivatives
+    grads = ones(u_x.shape, device=u.device)  # move to the same device as prediction
+    grad_u_x = grad(u_x, x, create_graph=True, grad_outputs=grads)[0]
+    u_xx = grad_u_x[:, 0]
+
+    # reshape for correct behavior of the optimizer
+    u_x = u_x.reshape(-1, 1)
+    u_t = u_t.reshape(-1, 1)
+    u_xx = u_xx.reshape(-1, 1)
+
+    # residual function
+    f = u_t - 1 * u_xx
+
+    return f
 
 
 if __name__ == "__main__":
@@ -192,38 +206,6 @@ if __name__ == "__main__":
     bc_datasetub = BoundaryConditionDatasetub(nb=args.nb, lb=lb, ub=ub)
     
     # Function for dirichlet boundary condition
-    def func(x):
-        return  torch.zeros_like(x)[:,0].reshape(-1,1)
-    
-    dirichlet_bc_u_lb = pf.DirichletBC(func, bc_datasetlb, name= 'ulb dirichlet boundary condition')
-    dirichlet_bc_u_ub = pf.DirichletBC(func, bc_datasetub, name= 'uub dirichlet boundary condition')
-
-    # PDE
-    pde_dataset = PDEDataset(args.nf, lb, ub)
-
-    def heat1d(x, u):
-
-        grads = ones(u.shape, device=u.device) # move to the same device as prediction
-        grad_u = grad(u, x, create_graph=True, grad_outputs=grads)[0]
-
-        # calculate first order derivatives
-        u_x = grad_u[:, 0]
-        u_t = grad_u[:, 1]
-      
-        # calculate second order derivatives
-        grads = ones(u_x.shape, device=u.device)  # move to the same device as prediction
-        grad_u_x = grad(u_x, x, create_graph=True, grad_outputs=grads)[0]
-        u_xx = grad_u_x[:, 0]
-
-        # reshape for correct behavior of the optimizer
-        u_x = u_x.reshape(-1, 1)
-        u_t = u_t.reshape(-1, 1)
-        u_xx = u_xx.reshape(-1, 1)
-        
-        # residual function
-        f = u_t - 1 * u_xx
-
-        return f
 
     pde_loss = pf.PDELoss(pde_dataset, heat1d, name='1D Heat', weight = 1)
     
@@ -250,7 +232,6 @@ if __name__ == "__main__":
 
     t = np.linspace(0,max_t,200).flatten()[:, None]
     x = np.linspace(0,max_x,200).flatten()[:, None]
-    X, T = np.meshgrid(x, t)
 
     X_star = np.hstack((X.flatten()[:, None], T.flatten()[:, None]))
     pred = pinn(Tensor(X_star).cuda())
