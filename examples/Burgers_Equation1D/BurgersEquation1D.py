@@ -86,7 +86,24 @@ class PDEDataset(Dataset):
         """
         return 1
 
+def burger1D(x, u):
+    grads = ones(u.shape, device=u.device)  # move to the same device as prediction
+    grad_u = grad(u, x, create_graph=True, grad_outputs=grads)[0]
+    # calculate first order derivatives
+    u_x = grad_u[:, 0]
+    u_t = grad_u[:, 1]
+    grads = ones(u_x.shape, device=u.device)  # move to the same device as prediction
+    # calculate second order derivatives
+    grad_u_x = grad(u_x, x, create_graph=True, grad_outputs=grads)[0]
+    u_xx = grad_u_x[:, 0]
 
+    # reshape for correct behavior of the optimizer
+    u_x = u_x.reshape(-1, 1)
+    u_t = u_t.reshape(-1, 1)
+    u_xx = u_xx.reshape(-1, 1)
+
+    f = u_t + u * u_x - (0.01 / np.pi) * u_xx
+    return f
 if __name__ == "__main__":
     # Domain bounds
     nu = 0.01 / np.pi
@@ -103,24 +120,7 @@ if __name__ == "__main__":
     pde_dataset = PDEDataset(N_f)
 
     # define underlying PDE
-    def burger1D(x, u):
-        grads = ones(u.shape, device=u.device)  # move to the same device as prediction
-        grad_u = grad(u, x, create_graph=True, grad_outputs=grads)[0]
-        # calculate first order derivatives
-        u_x = grad_u[:, 0]
-        u_t = grad_u[:, 1]
-        grads = ones(u_x.shape, device=u.device)  # move to the same device as prediction
-        # calculate second order derivatives
-        grad_u_x = grad(u_x, x, create_graph=True, grad_outputs=grads)[0]
-        u_xx = grad_u_x[:, 0]
 
-        # reshape for correct behavior of the optimizer
-        u_x = u_x.reshape(-1, 1)
-        u_t = u_t.reshape(-1, 1)
-        u_xx = u_xx.reshape(-1, 1)
-
-        f = u_t + u * u_x - (0.01 / np.pi) * u_xx
-        return f
 
     pde_loss = pf.PDELoss(pde_dataset, burger1D, name='1D Burgers equation')
     # create model

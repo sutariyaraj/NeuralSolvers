@@ -96,9 +96,6 @@ class PDEDataset(Dataset):
         return 1
 
 def schroedinger1d(x, u):
-    print(x.shape)
-    print(x)
-    print(u.shape)
     pred = u
     u= pred[:, 0]
     v = pred[:, 1]

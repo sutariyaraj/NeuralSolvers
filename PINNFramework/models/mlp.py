@@ -16,12 +16,13 @@ class MLP(nn.Module):
         self.linear_layers.append(nn.Linear(input_size, hidden_size))
         for _ in range(num_hidden):
             self.linear_layers.append(nn.Linear(hidden_size, hidden_size))
-        self.linear_layers.append(nn.Linear(hidden_size, output_size))
+        self.linear_layers.append(nn.Linear(hidden_size, output_size, bias=False))
 
         for m in self.linear_layers:
             if isinstance(m, nn.Linear):
                 nn.init.xavier_normal_(m.weight)
-                nn.init.constant_(m.bias, 0)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         if self.normalize:
