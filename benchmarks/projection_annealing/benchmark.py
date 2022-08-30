@@ -1,3 +1,5 @@
+import ctypes
+libgcc_s = ctypes.CDLL('libgcc_s.so.1')
 import numpy as np
 import sys
 from argparse import ArgumentParser
@@ -107,7 +109,7 @@ if __name__ == "__main__":
     pinn = pf.PINN(model,input_dimension,output_dimension,pde_loss, initial_condition, boundary_condition,use_gpu=True)
     logger = pf.WandbLogger("Projection benchmark", args, 'aipp')
     pinn.fit(50000,
-             pinn_path=args.pde + '_best_model.pt',
+             pinn_path=args.pde + '_best_model_projection_{}_annealing_{}.pt'.format(args.projection,args.annealing),
              writing_cycle=1,
              logger=logger,
              track_gradient=True,
