@@ -593,6 +593,8 @@ class PINN(nn.Module):
                             n_param = p.numel()  # number of parameters in [p]
                             p.grad.copy_(grad_proj[index:index + n_param].view_as(p))
                             index += n_param
+                if do_annealing:
+                    self.standard_learning_rate_annealing(alpha=0.9)
                 optim.step()
                 pinn_loss_sum = pinn_loss_sum + pinn_loss
                 batch_counter += 1
