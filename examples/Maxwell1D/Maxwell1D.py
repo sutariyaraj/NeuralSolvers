@@ -13,8 +13,8 @@ from argparse import ArgumentParser
 sys.path.append('../..')  # PINNFramework etc.
 import PINNFramework as pf
 
-def gaussian_pulse(x,mu=2):
-    return np.exp((-(x-mu)**2)/2) * np.sin(2*np.pi * 4 * (x-mu))
+def gaussian_pulse(x,mu=2,omega=1.):
+    return np.exp((-(x-mu)**2)/2) * np.sin(omega*2*np.pi * 4 * (x-mu))
 
 class PDEDataset(Dataset):
     def __init__(self, nf, lb, ub):
@@ -35,7 +35,7 @@ class PDEDataset(Dataset):
 
 class InitialConditionDataset(Dataset):
 
-    def __init__(self, n0):
+    def __init__(self, n0, omega=1.):
         """
         Constructor of the boundary condition dataset
 
@@ -44,9 +44,8 @@ class InitialConditionDataset(Dataset):
         """
         super(type(self)).__init__()
         x = np.linspace(0, 4, n0)
-
-        self.exact_e = gaussian_pulse(x)
-        self.exact_h = gaussian_pulse(x)
+        self.exact_e = gaussian_pulse(x, omega=omega)
+        self.exact_h = gaussian_pulse(x, omega=omega)
         exact_e = self.exact_e.reshape(-1, 1)
         exact_h = self.exact_h.reshape(-1, 1)
 
@@ -107,10 +106,11 @@ if __name__ == "__main__":
     parser.add_argument('--hidden_size', dest='hidden_size', type=int, default=100, help='Size of hidden layers')
     parser.add_argument('--annealing', dest='annealing', type=int, default=0, help='Activate Annealing')
     parser.add_argument('--pretraining',dest='pretraining', type=int, default=0, help='Activate pretraining')
-    parser.add_argument('--projection', dest='projection', type=int, default=1, help='Activate projection')
+    parser.add_argument('--projection', dest='projection', type=int, default=0, help='Activate projection')
     parser.add_argument('--ic_weight', dest='ic_weight', type=int, default=1)
+    parser.add_argument('--omega', dest='omega', type=float, default=1.)
     args = parser.parse_args()
-    ic_dataset = InitialConditionDataset(args.n0)
+    ic_dataset = InitialConditionDataset(args.n0, args.omega)
     initial_condition = pf.InitialCondition(ic_dataset, name='Initial Condition')
 
     pde_dataset = PDEDataset(args.nf, lb, ub)
@@ -119,7 +119,7 @@ if __name__ == "__main__":
     model = pf.models.FingerNet(lb, ub, 2, 2, 50, 3, 5, torch.sin, False)
     #model = pf.models.MLP(2,2, args.hidden_size,args.num_hidden, lb, ub)
     pinn = pf.PINN(model, 2, 2, pde_loss, initial_condition, [], use_gpu=True)
-    logger = pf.WandbLogger('Projection Exeperiments', args, 'aipp')
+    logger = pf.WandbLogger('Frequency experiments', args, 'aipp')
     pinn.fit(args.num_epochs, checkpoint_path='checkpoint.pt', epochs_pt=10000, pretraining=args.pretraining,
              restart=True, logger=logger, activate_annealing=args.annealing, annealing_cycle=200,
              writing_cycle=50, learning_rate=1e-3,  track_gradient=True,
