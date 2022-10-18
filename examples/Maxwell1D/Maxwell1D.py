@@ -3,7 +3,6 @@ import torch
 import sys
 import scipy.stats as stats
 import matplotlib.pyplot as plt
-import scipy.constants as constants
 from pyDOE import lhs
 from torch.autograd import grad
 from torch import ones, stack, Tensor
@@ -13,8 +12,8 @@ from argparse import ArgumentParser
 sys.path.append('../..')  # PINNFramework etc.
 import PINNFramework as pf
 
-def gaussian_pulse(x,mu=2,omega=1.):
-    return np.exp((-(x-mu)**2)/2) * np.sin(omega*2*np.pi * 4 * (x-mu))
+def gaussian_pulse(x,mu=2):
+    return np.exp((-(x-mu)**2)/2) * np.sin(2*np.pi * 4 * (x-mu))
 
 class PDEDataset(Dataset):
     def __init__(self, nf, lb, ub):
@@ -35,7 +34,7 @@ class PDEDataset(Dataset):
 
 class InitialConditionDataset(Dataset):
 
-    def __init__(self, n0, omega=1.):
+    def __init__(self, n0):
         """
         Constructor of the boundary condition dataset
 
@@ -44,8 +43,9 @@ class InitialConditionDataset(Dataset):
         """
         super(type(self)).__init__()
         x = np.linspace(0, 4, n0)
-        self.exact_e = gaussian_pulse(x, omega=omega)
-        self.exact_h = gaussian_pulse(x, omega=omega)
+
+        self.exact_e = gaussian_pulse(x)
+        self.exact_h = gaussian_pulse(x)
         exact_e = self.exact_e.reshape(-1, 1)
         exact_h = self.exact_h.reshape(-1, 1)
 
@@ -55,7 +55,6 @@ class InitialConditionDataset(Dataset):
         self.e = exact_e[idx_x, 0:1]
         self.h = exact_h[idx_x, 0:1]
         self.t = np.zeros(self.x.shape)
-
 
     def __len__(self):
         """
@@ -99,18 +98,17 @@ if __name__ == "__main__":
     lb = np.array([0, 0])
     ub = np.array([4, 5])
     parser = ArgumentParser()
-    parser.add_argument("--num_epochs", dest="num_epochs", type=int, default=50000, help='Number of training iterations')
-    parser.add_argument('--n0', dest='n0', type=int, default=200, help='Number of input points for initial condition')
+    parser.add_argument("--num_epochs", dest="num_epochs", type=int, default=20000, help='Number of training iterations')
+    parser.add_argument('--n0', dest='n0', type=int, default=300, help='Number of input points for initial condition')
     parser.add_argument('--nf', dest='nf', type=int, default=50000, help='Number of input points for pde loss')
     parser.add_argument('--num_hidden', dest='num_hidden', type=int, default=4, help='Number of hidden layers')
     parser.add_argument('--hidden_size', dest='hidden_size', type=int, default=100, help='Size of hidden layers')
     parser.add_argument('--annealing', dest='annealing', type=int, default=0, help='Activate Annealing')
     parser.add_argument('--pretraining',dest='pretraining', type=int, default=0, help='Activate pretraining')
-    parser.add_argument('--projection', dest='projection', type=int, default=0, help='Activate projection')
+    parser.add_argument('--projection', dest='projection', type=int, default=1, help='Activate projection')
     parser.add_argument('--ic_weight', dest='ic_weight', type=int, default=1)
-    parser.add_argument('--omega', dest='omega', type=float, default=1.)
     args = parser.parse_args()
-    ic_dataset = InitialConditionDataset(args.n0, args.omega)
+    ic_dataset = InitialConditionDataset(args.n0)
     initial_condition = pf.InitialCondition(ic_dataset, name='Initial Condition')
 
     pde_dataset = PDEDataset(args.nf, lb, ub)
@@ -119,14 +117,21 @@ if __name__ == "__main__":
     model = pf.models.FingerNet(lb, ub, 2, 2, 50, 3, 5, torch.sin, False)
     #model = pf.models.MLP(2,2, args.hidden_size,args.num_hidden, lb, ub)
     pinn = pf.PINN(model, 2, 2, pde_loss, initial_condition, [], use_gpu=True)
-    logger = pf.WandbLogger('Frequency experiments', args, 'aipp')
-    pinn.fit(args.num_epochs, checkpoint_path='checkpoint.pt', epochs_pt=10000, pretraining=args.pretraining,
+    run_name = input('Enter wandb run name: ')
+    logger = pf.WandbLogger('Projection Exeperiments', args, run_name=run_name)
+    # logger = None
+
+    # load best pre-training model
+    pinn.load_model('pretraining_best_model_pinn.pt')
+
+    pinn.fit(args.num_epochs, checkpoint_path='checkpoint.pt', epochs_pt=30000, pretraining=args.pretraining,
              restart=True, logger=logger, activate_annealing=args.annealing, annealing_cycle=200,
              writing_cycle=50, learning_rate=1e-3,  track_gradient=True,
              lbfgs_finetuning=False, gradient_projection=args.projection)
 
-    pinn.load_model('best_model_pinn.pt')
-    # plotting
+
+    ## Plotting
+    # field plots
     x = np.linspace(0, 4, args.n0)
     t = np.linspace(0, 5, 200)
 
@@ -145,27 +150,35 @@ if __name__ == "__main__":
     plt.pcolormesh(t, x, pred_e.T)
     plt.title('Electric field')
     plt.colorbar()
-    plt.savefig(logger.name + 'e_field.png')
+    if logger is not None:
+        plt.savefig(logger.name + 'e_field.png')
     plt.show()
     fig = plt.figure()
     plt.pcolormesh(t, x, pred_h.T)
     plt.title("Magnetic field")
     plt.colorbar()
-    plt.savefig(logger.name + 'b_field.png')
+    if logger is not None:
+        plt.savefig(logger.name + 'b_field.png')
     plt.show()
     print(pred_e.shape)
+
+    # initial condition plots
     fig = plt.figure()
     plt.title("Initial Condition E-Field ")
     plt.plot(x, pred_e[0, :], label='prediction 0')
     plt.plot(x, ic_dataset.exact_e, label='ground truth initial state')
-    plt.savefig(logger.name + 'initial_condition_e.png')
+    if logger is not None:
+        plt.savefig(logger.name + 'initial_condition_e.png')
     plt.show()
     plt.figure()
     plt.title("Initial Conditioni H-Field")
     plt.plot(x, pred_h[0, :], label='prediction 0')
     plt.plot(x, ic_dataset.exact_h, label='ground truth initial state')
-    plt.savefig(logger.name + 'initial_condition_h.png')
+    if logger is not None:
+        plt.savefig(logger.name + 'initial_condition_h.png')
     plt.show()
+
+    # snapshot at different time-steps
     # timestep 0
     fig = plt.figure()
     plt.title('e_field time step')
@@ -177,7 +190,8 @@ if __name__ == "__main__":
     # timestep 5
     plt.plot(x, pred_e[4, :], label='prediction 5')
     plt.legend()
-    plt.savefig(logger.name + 'e_field_time.png')
+    if logger is not None:
+        plt.savefig(logger.name + 'e_field_time.png')
     plt.show()
 
     # timestep
@@ -190,5 +204,6 @@ if __name__ == "__main__":
     # timestep 75
     plt.plot(x, pred_h[4, :], label='prediction 5')
     plt.legend()
-    plt.savefig(logger.name + 'h_field_time.png')
+    if logger is not None:
+        plt.savefig(logger.name + 'h_field_time.png')
     plt.show()
