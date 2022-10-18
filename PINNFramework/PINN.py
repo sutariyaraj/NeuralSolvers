@@ -11,7 +11,9 @@ from .JoinedDataset import JoinedDataset
 from .HPMLoss import HPMLoss
 from torch.autograd import grad as grad
 from PINNFramework.callbacks import CallbackList
-from .utils import angle, loss_gradients, capture_gradients, normed_dot_product
+from .utils import angle, loss_gradients, capture_gradients, normed_dot_product, model_gradients
+from PINNFramework.ic_plot_temp import plot_ic
+PREVIOUS_GRADIENTS = False
 
 try:
     import horovod.torch as hvd
@@ -334,6 +336,13 @@ class PINN(nn.Module):
                     self.loss_log[self.initial_condition.name] = self.loss_log[self.initial_condition.name] + ic_loss
                 if compute_gradients:
                     self.loss_gradients_storage[self.initial_condition.name] = loss_gradients(ic_loss, self.model)
+                    global PREVIOUS_GRADIENTS
+                    if type(PREVIOUS_GRADIENTS) == list:
+                        self.loss_gradients_storage[self.initial_condition.name+"_memory"] = PREVIOUS_GRADIENTS
+                    else:
+                        ic_output = self.model(training_data[self.initial_condition.name][0][0].type(self.dtype))
+                        self.loss_gradients_storage[self.initial_condition.name+"_memory"] = model_gradients(ic_output, self.model)
+                        PREVIOUS_GRADIENTS = self.loss_gradients_storage[self.initial_condition.name + "_memory"]
 
                 pinn_loss = pinn_loss + ic_loss * self.initial_condition.weight
             else:
@@ -561,9 +570,24 @@ class PINN(nn.Module):
                     self.write_checkpoint(checkpoint_path, epoch, True, minimum_pinn_loss, optim)
                 if not self.rank:
                     print("IC Loss {} Epoch {} from {}".format(ic_loss, epoch + 1, epochs_pt))
+
+                # plot intermediate results
+                if epoch% 1000 == 0:
+                    plot_ic(self.model, self.initial_condition.dataset, plot_prefix=epoch)
+            self.save_model("pretraining_"+pinn_path, "pretraining_"+hpm_path)
+
         print("===== Main training =====")
 
         for epoch in range(start_epoch, epochs):
+
+            # plot intermediate results
+            if epoch % 10 == 0:
+                print("graph display", epoch)
+                plot_ic(self.model, self.initial_condition.dataset, len(self.initial_condition.dataset[0][0]), plot_prefix=epoch)
+
+            # global PREVIOUS_GRADIENTS
+            # PREVIOUS_GRADIENTS = False
+
             # for parallel training the rank should also define the seed
             np.random.seed(42 + epoch + self.rank)
             batch_counter = 0.
@@ -581,12 +605,32 @@ class PINN(nn.Module):
                 if gradient_projection:
                     gradient_pinn_loss = capture_gradients(self.model)
                     grad_ic = self.loss_gradients_storage[self.initial_condition.name]
+                    model_grads = self.loss_gradients_storage[self.initial_condition.name+"_memory"]
                     grad_pde = self.loss_gradients_storage[self.pde_loss.name]
-                    dot_product = torch.dot(grad_pde, grad_ic)
-                    ic_scale = dot_product / torch.dot(grad_ic, grad_ic)
-                    if logger is not None:
-                        logger.log_scalar(scalar=ic_scale, name="Projection Scale", epoch=epoch+1)
-                    grad_proj = gradient_pinn_loss - ic_scale * grad_ic
+
+                    # prior_l1 = float(torch.norm(gradient_pinn_loss))
+                    #
+                    # # all model grads individually projected on grad_pde
+                    # for ic_sample_grad in model_grads:
+                    #     scale = torch.dot(gradient_pinn_loss, ic_sample_grad) / torch.dot(ic_sample_grad, ic_sample_grad)
+                    #     gradient_pinn_loss = gradient_pinn_loss - scale * ic_sample_grad
+                    #
+                    # post_l1 = float(torch.norm(gradient_pinn_loss))
+                    # print("L1 norm of gradient before and after projection: {:.2f} - {:.2f}, {:.2f}"
+                    #       .format(prior_l1, post_l1, post_l1/prior_l1*100))
+
+                    # add all gradients prior the calculation of the projection
+                    total_grad = torch.stack(model_grads).sum(dim=0)
+                    scale = torch.dot(gradient_pinn_loss, total_grad) / torch.dot(total_grad, total_grad)
+                    gradient_pinn_loss = gradient_pinn_loss - scale * total_grad
+                    print("Scale", scale)
+                    grad_proj = gradient_pinn_loss
+
+                    # dot_product = torch.dot(grad_pde, grad_ic)
+                    # ic_scale = dot_product / torch.dot(grad_ic, grad_ic)
+                    # if logger is not None:
+                    #     logger.log_scalar(scalar=ic_scale, name="Projection Scale", epoch=epoch+1)
+                    # grad_proj = gradient_pinn_loss - ic_scale * grad_ic
                     index = 0
                     for p in self.parameters():
                         if p.requires_grad:
@@ -605,6 +649,8 @@ class PINN(nn.Module):
                       flush=True)
 
                 if logger is not None and not (epoch + 1) % writing_cycle:
+                    # global PREVIOUS_GRADIENTS
+                    # PREVIOUS_GRADIENTS = False
                     logger.log_scalar(scalar=pinn_loss_sum / batch_counter, name="Weighted PINN Loss", epoch=epoch+1)
                     logger.log_scalar(scalar=sum(self.loss_log.values()) / batch_counter,
                                       name=" Non-Weighted PINN Loss", epoch=epoch + 1)
@@ -629,12 +675,14 @@ class PINN(nn.Module):
                         angle_ic_pde = angle(grad_initial_condition, grad_pde_loss)
                         angle_ic_pinn = angle(grad_initial_condition, gradient_pinn_loss)
                         angle_pde_pinn = angle(grad_pde_loss, gradient_pinn_loss)
-                        
+
                         logger.log_scalar(angle_ic_pde, 'angle_IC_PDE', epoch + 1)
                         logger.log_scalar(angle_ic_pinn, 'angle_IC_PINN', epoch + 1)
                         logger.log_scalar(angle_pde_pinn, 'angle_PDE_PINN', epoch +1)
                         logger.log_scalar(torch.dot(grad_initial_condition,grad_pde_loss),'dot IC PDE', epoch+1)
                         for key, gradients in self.loss_gradients_storage.items():
+                            if key == self.initial_condition.name+"_memory":
+                                continue
                             logger.log_histogram(gradients.cpu(),
                                                  'gradients_' + key,
                                                  epoch + 1)
